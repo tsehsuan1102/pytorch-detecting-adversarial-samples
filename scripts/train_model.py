@@ -7,74 +7,77 @@ from tqdm import tqdm
 from detect.util import get_data, get_model, evaluate
 
 
-def main(args):
-    print(args)
 
-    assert args.dataset in ['mnist', 'cifar', 'svhn'], \
-        "dataset parameter must be either 'mnist', 'cifar' or 'svhn'"
-    print('Data set: %s' % args.dataset)
-    
-    train_data, test_data = get_data(args.dataset)
-    train_loader = DataLoader(
-        dataset = train_data,
-        batch_size = args.batch_size,
-    )
-    test_loader = DataLoader(
-        dataset = test_data,
-        batch_size = args.batch_size
-    )
 
-    model = get_model(args.dataset)
-    optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
-    loss_criterien = torch.nn.CrossEntropyLoss()
+def train(args, model, device, train_loader, test_loader=None):
     running_loss = 0
+    model.train()
     
     for i_epoch in range(args.epochs):
-        model.to('cuda')
-        model.train()
+        model.to(device)
 
         print('training %d epochs' % (i_epoch) )
-
         pbar = tqdm(train_loader)
         ## train
         for batch_data in pbar:
             optimizer.zero_grad()
-            x = batch_data[0].to('cuda')
-            y = batch_data[1].to('cuda')
+
+            x = batch_data[0].to(device)
+            y = batch_data[1].to(device)
             batch_sz = x.shape[0]
             
             pred = model(x)
             target = torch.tensor(y)
 
             loss = loss_criterien(pred, target)
-            #print(loss)
             loss.backward()
+
             running_loss += loss.item()
             optimizer.step()
             pbar.set_description('loss: %f' % (loss) )
-
-        ## eval 
-        #test_pbar = tqdm(test_loader)
-        acc = evaluate(model, test_loader)
-        '''
-        for batch_data in test_pbar:
-            with torch.no_grad():
-                x = batch_data[0].to('cuda')
-                y = batch_data[1].to('cuda')
-                batch_sz = x.shape[0]
-                print(x.shape)
-
-                pred = model(x)
-                acc = evaluate()
-                if torch.argmax(pred, dim=1) == y:
-                    acc += 1
-                total += 1
-        '''
-        print('DEV accuracy: ', acc)   
+        if test_loader is not None:
+            acc = evaluate(model, test_loader)
+            print('DEV accuracy: ', acc)
     
     model_dir = '../model/'
     path = model_dir + args.dataset + '_' + str(args.epochs) + '.pth'
     torch.save(model.state_dict(), path)
+
+
+def main(args):
+    print(args)
+    assert args.dataset in ['mnist', 'cifar', 'svhn'], \
+        "dataset parameter must be either 'mnist', 'cifar' or 'svhn'"
+    print('Data set: %s' % args.dataset)
+    ##################################################################
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    # load data
+    train_data = get_data(args.dataset, train=True)
+    test_data = get_data(args.dataset, train=False)
+    train_loader = DataLoader(
+        dataset = train_data,
+        shuffle = True,
+        batch_size = args.batch_size,
+    )
+    test_loader = DataLoader(
+        dataset = test_data,
+        shuffle = False,
+        batch_size = args.batch_size
+    )
+    
+    #get model
+    model = get_model(args.dataset)
+    # optimizer = Adadelta
+    optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
+    loss_criterien = torch.nn.CrossEntropyLoss()
+    
+    ## training
+    train(args, model, device, train_loader, test_loader)
+
+
+
+
 
 def parse_args():
     parser = argparse.ArgumentParser()

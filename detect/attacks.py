@@ -1,6 +1,5 @@
 from collections import defaultdict
 import numpy as np
-import tensorflow as tf
 from tqdm import tqdm
 from cleverhans.utils import other_classes
 from cleverhans.utils_tf import batch_eval, model_argmax
@@ -11,7 +10,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchattacks
 
-#def fgsm(x, predictions, eps, clip_min=None, clip_max=None, y=None):
 def fast_gradient_sign_method(model, X, Y, eps, test_loader=None):
     atk = torchattacks.FGSM(model, eps=eps)
     x_adv_list = []
@@ -23,20 +21,26 @@ def fast_gradient_sign_method(model, X, Y, eps, test_loader=None):
             y = batch[1]
             x_adv_list.append( atk(x, y) )
         X_adv = torch.cat( x_adv_list )
-
     else:
         X_adv = atk(X, Y)
+    
     print('adv', X_adv.shape)
+    X_adv = X_adv.cpu()
     return X_adv
-
-#def fast_gradient_sign_method(model, X, Y, eps, clip_min=None, clip_max=None, batch_size=256):
-#    X_adv = fgsm(mode, eps,)    
-#   return X_adv
 
 def basic_iterative_method(model, X, Y, eps, eps_iter, test_loader=None):
     print(X.shape, Y.shape)
     atk = torchattacks.BIM(model, eps=eps, alpha=eps_iter, steps=7)
-    return atk(X, Y)
+    if test_loader is not None:
+        x_adv_list = []
+        for batch in test_loader:
+            x = batch[0]
+            y = batch[1]
+            x_adv_list.append( atk(x, y) )
+        X_adv = torch.cat( x_adv_list )
+    print('adv', X_adv.shape)
+    X_adv = X_adv.cpu()
+    return X_adv
 
 '''
 def basic_iterative_method(model, X, Y, eps, eps_iter, nb_iter=50, clip_min=None, clip_max=None, batch_size=256):

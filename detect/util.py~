@@ -1,21 +1,21 @@
 import os
 import multiprocessing as mp
 from subprocess import call
-import torch
 import warnings
 import numpy as np
 import scipy.io as sio
 from tqdm import tqdm
+import torch
 import torch.nn as nn
 import torch.functional as F
 from torch.utils.data import Dataset
+import torchvision
+from pytorchcv.model_provider import get_model as ptcv_get_model
 
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, auc
 from sklearn.linear_model import LogisticRegressionCV
 from sklearn.preprocessing import scale
-import torchvision
-from pytorchcv.model_provider import get_model as ptcv_get_model
 
 # Gaussian noise scale sizes that were determined so that the average
 # L-2 perturbation size is equal to that of the adversarial samples
@@ -32,6 +32,7 @@ datadir = '/tmp2/SPML/datasets'
 def evaluate(model, data_loader):
     ## TODO batch calculation
     model.eval()
+
     acc = 0
     total = 0
     with torch.no_grad():
@@ -48,49 +49,48 @@ def evaluate(model, data_loader):
     return acc / total
 
 
-def get_data(dataset='mnist', transform=None):
+
+
+
+## Normalization
+def get_data(dataset='mnist', train=True, transform=None):
     ## torchvision.datasets
     assert dataset in ['mnist', 'cifar', 'svhn'], \
        "dataset parameter must be either 'mnist' 'cifar' or 'svhn'"
 
-    if transform is None:
-        transform = torchvision.transforms.Compose([
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(mean = (0.1307, ), std = (0.3081, )),
-        ])
-    else:
-        transform = transform
-
     if dataset == 'mnist':
-        train_data = torchvision.datasets.MNIST(
+        # transforms
+        if transform is None:
+            transform = torchvision.transforms.Compose([
+                torchvision.transforms.ToTensor(),
+                torchvision.transforms.Normalize(mean = (0.1307, ), std = (0.3081, )),
+            ])
+        else:
+            transform = transform
+
+        dataset = torchvision.datasets.MNIST(
             root=datadir,
             download=True,
-            #train=True,
-            train=False,
+            train=train,
             transform=transform,
         )
-        test_data = torchvision.datasets.MNIST(
-            root=datadir,
-            download=True,
-            train=False,
-            transform=transform,
-        )
-        return train_data, test_data
+        return dataset
 
     elif dataset == 'cifar':
-        train_data = torchvision.datasets.CIFAR10(
+        if transform is None:
+            transform = torchvision.transforms.Compose([
+                torchvision.transforms.ToTensor(),
+                torchvision.transforms.Normalize(mean = (0.4914, 0.4822, 0.4465), std = (0.247, 0.243, 0.261)),
+            ])
+        else:
+            transform = transform
+        dataset = torchvision.datasets.CIFAR10(
             root=datadir,
             download=True,
-            train=True,
-            transform=transform
+            train=train,
+            transform=transform,
         )
-        test_data = torchvision.datasets.CIFAR10(
-            root=datadir,
-            download=True,
-            train=False,
-            transform=transform
-        )
-        return train_data, test_data
+        return dataset
 
     '''
     else:
@@ -100,35 +100,14 @@ def get_data(dataset='mnist', transform=None):
             train=True,
             transform=torchvision.transforms.ToTensor(),
         )
-
         train = sio.loadmat('../data/svhn_train.mat')
         test = sio.loadmat('../data/svhn_test.mat')
-        
         X_train = np.transpose(train['X'], axes=[3, 0, 1, 2])
         X_test = np.transpose(test['X'], axes=[3, 0, 1, 2])
-        
         # reshape (n_samples, 1) to (n_samples,) and change 1-index
         # to 0-index
-        
         y_train = np.reshape(train['y'], (-1,)) - 1
         y_test = np.reshape(test['y'], (-1,)) - 1
-
-    # cast pixels to floats, normalize to [0, 1] range
-    #X_train = X_train.astype('float32')
-    #X_test = X_test.astype('float32')
-    #X_train /= 255
-    #X_test /= 255
-
-    # one-hot-encode the labels
-    #Y_train = np_utils.to_categorical(y_train, 10)
-    #Y_test = np_utils.to_categorical(y_test, 10)
-
-    #print(X_train.shape)
-    #print(Y_train.shape)
-    #print(X_test.shape)
-    #print(Y_test.shape)
-
-    #return X_train, Y_train, X_test, Y_test
     '''
 
 
@@ -154,22 +133,7 @@ def get_model(dataset='mnist'):
         )
         print(model)
         return model
-        '''
-        layers = [
-            Conv2D(64, (3, 3), padding='valid', input_shape=(28, 28, 1)),
-            Activation('relu'),
-            Conv2D(64, (3, 3)),
-            Activation('relu'),
-            MaxPooling2D(pool_size=(2, 2)),
-            Dropout(0.5),
-            Flatten(),
-            Dense(128),
-            Activation('relu'),
-            Dropout(0.5),
-            Dense(10),
-            Activation('softmax')
-        ]
-        '''
+    
     elif dataset == 'cifar':
         #model = torchvision.models.resnet18(pretrained=False)
         model = ptcv_get_model('resnet20_cifar10', pretrained=True)
@@ -242,15 +206,12 @@ def flip(x, nb_diff):
     :return:
     """
     original_shape = x.shape
-
     x = np.copy(np.reshape(x, (-1,)))
     candidate_inds = np.where(x < 0.99)[0]
     assert candidate_inds.shape[0] >= nb_diff
     inds = np.random.choice(candidate_inds, nb_diff)
     x[inds] = 1.
-
     return np.reshape(x, original_shape)
-
 
 class AddGaussianNoise(object):
     def __init__(self, mean=0., std=1.):
@@ -260,7 +221,6 @@ class AddGaussianNoise(object):
         return tensor + torch.randn(tensor.size()) * self.std + self.mean
     def __repr__(self):
         return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
-
 
 def get_noisy_samples(X_test, X_test_adv, dataset, attack):
     if attack in ['jsma', 'cw']:
@@ -284,33 +244,6 @@ def get_noisy_samples(X_test, X_test_adv, dataset, attack):
 
     return X_test_noisy
 
-"""
-def get_mc_predictions(model, X, nb_iter=50, batch_size=256):
-    output_dim = model.layers[-1].output.shape[-1].value
-    get_output = K.function(
-        [model.layers[0].input, K.learning_phase()],
-        [model.layers[-1].output]
-    )
-
-
-    def predict():
-        n_batches = int(np.ceil(X.shape[0] / float(batch_size)))
-        output = np.zeros(shape=(len(X), output_dim))
-        for i in range(n_batches):
-            #X[(i*batch_size) : ((i+1)*batch_size) ]
-
-            #output[ (i*batch_size) : ((i+1)*batch_size) ] = 
-
-            output[i * batch_size:(i + 1) * batch_size] = \
-                get_output([X[i * batch_size:(i + 1) * batch_size], 1])[0]
-        return output
-
-    preds_mc = []
-    for i in tqdm(range(nb_iter)):
-        preds_mc.append(predict())
-
-    return np.asarray(preds_mc)
-"""
 
 def get_mc_predictions(model, dataloader, nb_iter=50, method = "default"):
     is_training = model.training
@@ -327,7 +260,6 @@ def get_mc_predictions(model, dataloader, nb_iter=50, method = "default"):
         trange_loader = tqdm(dataloader, total = len(dataloader), desc = "Prediction", leave=False)
 
         for batch in trange_loader:
-            #x = torch.stack([[batch_data[0] for batch_data in batch]]).to("cuda")
             x = batch[0].to('cuda')
 
             with torch.no_grad():
