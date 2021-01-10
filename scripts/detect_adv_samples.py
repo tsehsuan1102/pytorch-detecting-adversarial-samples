@@ -8,8 +8,6 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 from sklearn.neighbors import KernelDensity
 
-
-
 from detect.util import (get_data, get_model, get_noisy_samples, get_mc_predictions,
                          get_deep_representations, score_samples, normalize,
                          train_lr, compute_roc,
@@ -18,8 +16,25 @@ from detect.util import (get_data, get_model, get_noisy_samples, get_mc_predicti
 # Optimal KDE bandwidths that were determined from CV tuning
 BANDWIDTHS = {'mnist': 1.20, 'cifar': 0.26, 'svhn': 1.00}
 
+
+
+def getXY(dataset):
+    X = []
+    Y = []
+    for x, y in dataset:
+        X.append(x)
+        Y.append(torch.tensor(y))
+    #print(X, Y)
+
+    X = torch.stack(X)
+    Y = torch.stack(Y)
+    return np.array(X), np.array(Y)
+
+
+
+
 def main(args):
-    ## assert
+    ## assertions
     assert args.dataset in ['mnist', 'cifar', 'svhn'], "Dataset parameter must be either 'mnist', 'cifar' or 'svhn'"
     assert args.attack in ['fgsm', 'bim-a', 'bim-b', 'bim', 'jsma', 'cw', 'all'], \
         "Attack parameter must be either 'fgsm', 'bim-a', 'bim-b', " \
@@ -29,39 +44,55 @@ def main(args):
     #    'samples using craft_adv_samples.py'
 
     print('Loading the data and model...')
+    
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
     # Load the model
     model = get_model(args.dataset)
     model.load_state_dict(torch.load(args.model))
-    model.to('cuda')
-    model.eval()
+    model.to(device)
 
+
+    model.eval()
     # Load the dataset
-    train_data, test_data = get_data(args.dataset)
-    #test_data, train_data = get_data(args.dataset)
+    train_data  = get_data(args.dataset, train=True)
+    #test_data  = get_data(args.dataset)
     
     train_loader = DataLoader(
         dataset = train_data,
         batch_size = args.batch_size,
+        shuffle = False
     )
 
     ##### Load adversarial samples (create by crate_adv_samples.py)
     print('Loading noisy and adversarial samples...')
+    
     ### train_adv
     X_train_adv = np.load('../data/Adv_%s_%s_train.npy' % (args.dataset, args.attack))
     X_train_adv = torch.from_numpy(X_train_adv)
     train_adv   = [ (x_tmp, y_tmp[1]) for x_tmp, y_tmp in zip(X_train_adv, train_data) ]
-    #test_adv    = [ (x_tmp, y_tmp[1]) for x_tmp, y_tmp in zip(X_test_adv, test_data) ]
+    
     ##### create noisy data
-    noise_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean = (0.1307, ), std = (0.3081, )),
-        AddGaussianNoise(0., 0.05)
-    ])
-    train_noisy, test_noisy = get_data(args.dataset, noise_transform)
+    if args.dataset == 'mnist':
+        noise_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean = (0.1307, ), std = (0.3081, )),
+            AddGaussianNoise(0., 0.1)
+        ])
+    elif args.dataset == 'cifar':
+        noise_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean = (0.4914, 4822, 4465), std = (0.247, 0.243, 0.261) ),
+            AddGaussianNoise(0., 0.1)
+        ])
+    train_noisy = get_data(args.dataset, train=True, transform=noise_transform)
 
 
+    
+    X_train, Y_train = getXY(train_data)
     # Check model accuracies on each sample type
-    for s_type, dataset in zip(['normal', 'noisy', 'adversarial'],
+    for s_type, dataset in zip(['normal',   'noisy',    'adversarial'],
                                [train_data, train_noisy, train_adv]):
         data_loader = DataLoader(
             dataset = dataset,
@@ -71,24 +102,22 @@ def main(args):
         print("Model accuracy on the %s test set: %0.2f%%" % (s_type, 100 * acc) )
         # Compute and display average perturbation sizes
         ### TODO
-        '''
+        X_now, Y_now = getXY(dataset)
+
         if not s_type == 'normal':
             l2_diff = np.linalg.norm(
-                dataset.reshape((len(X_test), -1)) - X_test.reshape((len(X_test), -1)),
+                X_now.reshape((len(X_train), -1)) - X_train.reshape((len(X_train), -1)),
                 axis=1
             ).mean()
             print("Average L-2 perturbation size of the %s test set: %0.2f" % (s_type, l2_diff))
-        '''
 
     ### Refine the normal, noisy and adversarial sets to only include samples for which the original version was correctly classified by the model
     ### run test data and choose the data model can correctly predict
-
     y_train_list    = []
     pred_train_list = []
-
     with torch.no_grad():
         for batch in train_loader:
-            x       = batch[0].to('cuda')
+            x       = batch[0].to(device)
             y_train_list.append(batch[1])
             pred_train_list.append( model(x) )
 
@@ -96,7 +125,7 @@ def main(args):
     Y_train = torch.tensor(y_train_list).detach().cpu()
     pred_train = torch.cat(pred_train_list).detach().cpu()
 
-    inds_correct = torch.where(Y_train == pred_train.argmax(axis=1), torch.full_like(Y_train, 1), torch.full_like(Y_train, 0))#.to('cuda')
+    inds_correct = torch.where(Y_train == pred_train.argmax(axis=1), torch.full_like(Y_train, 1), torch.full_like(Y_train, 0)).to(device)
     picked_train_data       = []
     picked_train_data_noisy = []
     picked_train_data_adv   = []
@@ -124,7 +153,7 @@ def main(args):
     ## Get Bayesian uncertainty scores
     nb_size = 5
     print('Getting Monte Carlo dropout variance predictions...')
-    uncerts_normal  = get_mc_predictions(model, picked_train_loader,         nb_iter=nb_size, method='entropy')
+    uncerts_normal  = get_mc_predictions(model, picked_train_loader,         nb_iter=nb_size)#, method='entropy')
     uncerts_noisy   = get_mc_predictions(model, picked_train_noisy_loader,   nb_iter=nb_size)#, method='entropy')
     uncerts_adv     = get_mc_predictions(model, picked_train_adv_loader,     nb_iter=nb_size)#, method='entropy')
     
@@ -177,9 +206,9 @@ def main(args):
         with torch.no_grad():
             tmp_result = []
             for batch in now_loader:
-                x = batch[0].to('cuda')
+                x = batch[0].to(device)
                 pred = model(x)
-                tmp_result.append(pred)
+                tmp_result.append(pred.detach().cpu())
             preds.append( torch.cat(tmp_result) )
     preds_train_normal  = torch.argmax(preds[0], dim=1)
     preds_train_noisy   = torch.argmax(preds[1], dim=1)
