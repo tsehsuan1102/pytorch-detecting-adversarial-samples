@@ -17,7 +17,6 @@ from detect.util import (get_data, get_model, get_noisy_samples, get_mc_predicti
 BANDWIDTHS = {'mnist': 1.20, 'cifar': 0.26, 'svhn': 1.00}
 
 
-
 def getXY(dataset):
     X = []
     Y = []
@@ -29,8 +28,6 @@ def getXY(dataset):
     X = torch.stack(X)
     Y = torch.stack(Y)
     return np.array(X), np.array(Y)
-
-
 
 
 def main(args):
@@ -53,12 +50,10 @@ def main(args):
     model.load_state_dict(torch.load(args.model))
     model.to(device)
 
-
     model.eval()
     # Load the dataset
     train_data  = get_data(args.dataset, train=True)
-    #test_data  = get_data(args.dataset)
-    
+    print(train_data[0])
     train_loader = DataLoader(
         dataset = train_data,
         batch_size = args.batch_size,
@@ -84,10 +79,11 @@ def main(args):
         noise_transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize(mean = (0.4914, 4822, 4465), std = (0.247, 0.243, 0.261) ),
-            AddGaussianNoise(0., 0.1)
+            #AddGaussianNoise(0., 0.1)
         ])
-    train_noisy = get_data(args.dataset, train=True, transform=noise_transform)
-
+    train_noisy = get_data(args.dataset, train=True)#, transform=noise_transform)
+    print('NOISY', train_noisy)
+    print(train_noisy[0])
 
     
     X_train, Y_train = getXY(train_data)
@@ -105,6 +101,14 @@ def main(args):
         X_now, Y_now = getXY(dataset)
 
         if not s_type == 'normal':
+            print( X_now.reshape((len(X_train), -1)) - X_train.reshape((len(X_train), -1)) )
+            print( X_now.reshape((len(X_train), -1)).max() )
+            print( X_now.reshape((len(X_train), -1)).mean() )
+            print( X_now.reshape((len(X_train), -1)).min() )
+            print( X_train.reshape((len(X_train), -1)).max() )
+            print( X_train.reshape((len(X_train), -1)).mean() )
+            print( X_train.reshape((len(X_train), -1)).min() )
+
             l2_diff = np.linalg.norm(
                 X_now.reshape((len(X_train), -1)) - X_train.reshape((len(X_train), -1)),
                 axis=1
@@ -219,7 +223,7 @@ def main(args):
     print('computing densities...')
     densities_normal = score_samples(
         kdes,                           
-        x_train_normal_features.cpu(),   
+        x_train_normal_features.cpu(),
         preds_train_normal.cpu()
     )
     densities_noisy = score_samples(
@@ -276,36 +280,25 @@ def main(args):
     )
 
 
-
-
-
     ## Evaluate detector
-    
-
-
     # Compute logistic regression model predictions
+    ### evaluate on test dataset
     probs_combine   = lr_combine.predict_proba(values_combine)[:, 1]
     probs_dense     = lr_dense.predict_proba(values_dense)[:, 1]
     probs_uncert    = lr_uncert.predict_proba(values_uncert)[:, 1]
-
     # Compute AUC
     n_samples = len(picked_train_data)
     # The first 2/3 of 'probs' is the negative class (normal and noisy samples),
     # and the last 1/3 is the positive class (adversarial samples).
-
-
-    #probs_neg = probs[:2 * n_samples],
-    #probs_pos = probs[2 * n_samples:],
     prob_datas = [
-            (probs_combine[:2 * n_samples], probs_combine[2 * n_samples:], 'combine'),
-            (probs_dense[:2 * n_samples],   probs_dense[2 * n_samples:], 'dense'),
-            (probs_uncert[:2 * n_samples],  probs_uncert[2 * n_samples:], 'uncert')
+            (probs_combine[:2 * n_samples], probs_combine[2 * n_samples:],  'combine'),
+            (probs_dense[:2 * n_samples],   probs_dense[2 * n_samples:],    'dense'),
+            (probs_uncert[:2 * n_samples],  probs_uncert[2 * n_samples:],   'uncert')
     ]
     _, _, auc_score = compute_roc(
         prob_datas,
         plot=True
     )
-
 
     '''
     print('Detector ROC-AUC score: %0.4f' % auc_score)
@@ -349,8 +342,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     main(args)
     
-
-
 
 
 
