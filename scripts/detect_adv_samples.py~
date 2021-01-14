@@ -31,7 +31,7 @@ def getXY(dataset):
     return np.array(X), np.array(Y)
 
 
-def evaluate_test(args, kdes, datatypes):
+def evaluate_test(args, model, kdes, datatypes, nb_size):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     test_dataset = {}
@@ -59,7 +59,6 @@ def evaluate_test(args, kdes, datatypes):
         )
     ### TODO pick data(model predict correctly on normal)
     ### get uncertainty
-    nb_size = 2
     print('[Test] Getting Monte Carlo dropout variance predictions...')
     uncerts = {}
     for datatype in datatypes:
@@ -360,7 +359,7 @@ def main(args):
 
 
 
-    test_values, test_labels, test_num = evaluate_test(args, kdes, datatypes)
+    test_values, test_labels, test_num = evaluate_test(args, model, kdes, datatypes, nb_size)
 
     ## Evaluate detector
     ### evaluate on train dataset
