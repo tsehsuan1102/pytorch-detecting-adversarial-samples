@@ -62,7 +62,7 @@ def evaluate_test(args, model, kdes, datatypes, nb_size):
     print('[Test] Getting Monte Carlo dropout variance predictions...')
     uncerts = {}
     for datatype in datatypes:
-        uncerts[datatype] = get_mc_predictions(model, test_loader[datatype], nb_iter=nb_size)#, method='entropy')
+        uncerts[datatype] = get_mc_predictions(model, test_loader[datatype], nb_iter=nb_size, method=args.uncert)
 
     ################# Get KDE scores
     # Get deep feature representations
@@ -91,7 +91,7 @@ def evaluate_test(args, model, kdes, datatypes, nb_size):
         densities[datatype] = score_samples(
             kdes,
             features[datatype].cpu(),
-            pres[datatype].cpu()
+            preds[datatype].cpu()
         )
     ###### Z-score the uncertainty and density values
     ###### normalize
@@ -116,11 +116,13 @@ def evaluate_test(args, model, kdes, datatypes, nb_size):
     values  = {}
     labels  = {}
     for flag in flags:
-        tmp_values, tmp_labels, tmp_lr = get_value(
-            densities_pos = densities_z['adversarial'],
-            densities_neg = np.concatenate((densities_z['normal'], densities_z['noisy'])),
-            uncerts_pos = uncerts_z['adversarial'],
-            uncerts_neg = np.concatenate((uncerts_z['normal'], uncerts_z['noisy'])),
+        tmp_values, tmp_labels = get_value(
+            densities_pos   = densities_z['adversarial'],
+            densities_neg   = np.concatenate((densities_z['normal'], densities_z['noisy'])),
+            uncerts_pos     = uncerts_z['adversarial'],
+            uncerts_neg     = np.concatenate((uncerts_z['normal'], uncerts_z['noisy'])),
+            #entro_pos       = entro_z['adversarial'],
+            #entro_neg       = np.concatenate((entro_z['normal'], entro_z['noisy'])),
             flag = flag
         )
         values[flag] = tmp_values
@@ -253,12 +255,12 @@ def main(args):
 
     ###########################################################################################################################################
     ################# Get Bayesian uncertainty scores
-    nb_size = 2
+    nb_size = 50
     print('Getting Monte Carlo dropout variance predictions...')
     uncerts = {}
     test_uncerts = {}
     for datatype in datatypes:
-        uncerts[datatype] = get_mc_predictions(model, picked_train_loader[datatype], nb_iter=nb_size)#, method='entropy')
+        uncerts[datatype] = get_mc_predictions(model, picked_train_loader[datatype], nb_iter=nb_size, method=args.uncert)
 
     ################# Get KDE scores
     # Get deep feature representations
@@ -356,9 +358,6 @@ def main(args):
         values[flag] = tmp_values
         labels[flag] = tmp_labels
         lrs[flag] = tmp_lr
-
-
-
     test_values, test_labels, test_num = evaluate_test(args, model, kdes, datatypes, nb_size)
 
     ## Evaluate detector
@@ -382,7 +381,8 @@ def main(args):
 
     _, _, auc_score = compute_roc(
         prob_datas,
-        plot=True
+        plot=True,
+        name=args.pic_name
     )
 
 
@@ -416,6 +416,17 @@ if __name__ == "__main__":
         help="do on test dataset",
         action='store_true',
         required=False,
+    )
+    parser.add_argument(
+        '-u', '--uncert',
+        help="uncertainty type",
+        default='default',
+        required=False, type=str
+    )
+    parser.add_argument(
+        '--pic_name',
+        default='result',
+        required=False, type=str
     )
     parser.set_defaults(batch_size=256)
     args = parser.parse_args()
