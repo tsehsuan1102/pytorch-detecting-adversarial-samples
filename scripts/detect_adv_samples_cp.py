@@ -8,11 +8,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 from sklearn.neighbors import KernelDensity
 
-from detect.util import (get_data, get_model, get_noisy_samples, get_mc_predictions,
-                         get_deep_representations, score_samples, normalize,
-                         train_lr, compute_roc,
-                         get_value,
-                         AddGaussianNoise, evaluate)
+from detect.util import (get_data, get_model, get_noisy_samples, get_mc_predictions,get_deep_representations, score_samples, normalize,train_lr, compute_roc,get_value,AddGaussianNoise, evaluate)
 
 # Optimal KDE bandwidths that were determined from CV tuning
 BANDWIDTHS = {'mnist': 1.20, 'cifar': 0.26, 'svhn': 1.00}
@@ -31,108 +27,46 @@ def getXY(dataset):
     return np.array(X), np.array(Y)
 
 
-def evaluate_test(args, kdes, datatypes):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    test_dataset = {}
-    
-    transform = None
-    test_dataset['normal'] = get_data(args.dataset, train=False, transform=transform)
-    test_dataset['noisy'] = get_data(args.dataset, train=False, transform=transform)
-    ##### Load adversarial samples (create by crate_adv_samples.py)
-    ### craft adversarial examples on test_dataset
-    print('[Test] Loading noisy and adversarial samples...')
-    X_test_adv = np.load('../data/Adv_%s_%s.npy' % (args.dataset, args.attack))
-    X_test_adv = torch.from_numpy(X_test_adv)
-    test_adv   = [ (x_tmp, y_tmp[1]) for x_tmp, y_tmp in zip(X_test_adv, test_dataset['normal']) ]
-    test_dataset['adversarial'] = test_adv
-
-
-    num = len(test_dataset['normal'])
-    
-    test_loader = {}
-    for datatype in datatypes:
-        test_loader[datatype] = DataLoader(
-            dataset = test_dataset[datatype],
-            batch_size = args.batch_size,
-            shuffle = False
-        )
-    ### TODO pick data(model predict correctly on normal)
-    ### get uncertainty
-    nb_size = 2
-    print('[Test] Getting Monte Carlo dropout variance predictions...')
-    uncerts = {}
-    for datatype in datatypes:
-        uncerts[datatype] = get_mc_predictions(model, test_loader[datatype], nb_iter=nb_size)#, method='entropy')
-
-    ################# Get KDE scores
-    # Get deep feature representations
-    print('[Test] Getting deep feature representations...')
-    features = {}
-    for datatype in datatypes:
-        features[datatype] = get_deep_representations(model, test_loader[datatype], args.dataset)
-
-    # Get model predictions
-    print('[Test] Computing model predictions...')
-    preds = {}
-    for datatype in datatypes:
-        with torch.no_grad():
-            tmp_result = []
-            for batch in test_loader[datatype]:
-                x = batch[0].to(device)
-                pred = model(x)
-                tmp_result.append(pred.detach().cpu())
-            preds[datatype] = torch.argmax( torch.cat(tmp_result), dim=1 )
-
-    # Get density estimates
+def test_lr(lr):
     ###### get test density
-    print('[Test] computing densities...')
-    densities = {}
-    for datatype in datatypes:
-        densities[datatype] = score_samples(
-            kdes,
-            features[datatype].cpu(),
-            pres[datatype].cpu()
-        )
-    ###### Z-score the uncertainty and density values
-    ###### normalize
-    uncerts_z = {}
-    uncerts_z['normal'], uncerts_z['noisy'], uncerts_z['adversarial'] = normalize(
-        uncerts['normal'].cpu().numpy(),
-        uncerts['noisy'].cpu().numpy(),
-        uncerts['adversarial'].cpu().numpy(),
+    print('computing tests')
+    test_densities_normal = score_samples(
+        kde,
+        x_test_normal_features.cpu(),
+        preds_test_normal.cpu()
     )
-    densities_z = {}
-    densities_z['normal'], densities_z['noisy'], densities_z['adversarial'] = normalize(
-        densities['normal'],
-        densities['noisy'],
-        densities['adversarial'],
+    test_densities_noisy = score_samples(
+        kdes,
+        x_test_noisy_features.cpu(),
+        preds_test_noisy.cpu()
     )
-    print('.......Densities............')
-    for datatype in datatypes:
-        print(datatype, ' Mean: ', densities_z[datatype].mean() )
+    test_densities_adv = score_samples(
+        kdes,
+        x_test_adv_features.cpu(),
+        preds_test_adv.cpu()
+    )
+    ## Z-score the uncertainty and density values
+    test_uncerts_normal_z, test_uncerts_adv_z, test_uncerts_noisy_z = normalize(
+        uncerts_normal.cpu().numpy(),
+        uncerts_adv.cpu().numpy(),
+        uncerts_noisy.cpu().numpy()
+    )
+    densities_normal_z, densities_adv_z, densities_noisy_z = normalize(
+        densities_normal,
+        densities_adv,
+        densities_noisy
+    )
 
-    ### dense, uncert, combine
-    flags = ['dense', 'uncert', 'combine']
-    values  = {}
-    labels  = {}
-    for flag in flags:
-        tmp_values, tmp_labels, tmp_lr = get_value(
-            densities_pos = densities_z['adversarial'],
-            densities_neg = np.concatenate((densities_z['normal'], densities_z['noisy'])),
-            uncerts_pos = uncerts_z['adversarial'],
-            uncerts_neg = np.concatenate((uncerts_z['normal'], uncerts_z['noisy'])),
-            flag = flag
-        )
-        values[flag] = tmp_values
-        labels[flag] = tmp_labels
 
-    return values, labels, num
+
+
 
 
 
 def main(args):
-    datatypes   = ['normal', 'noisy', 'adversarial']
+    flags = ['dense', 'uncert', 'combine']
+
+
     ## assertions
     assert args.dataset in ['mnist', 'cifar', 'svhn'], "Dataset parameter must be either 'mnist', 'cifar' or 'svhn'"
     assert args.attack in ['fgsm', 'bim-a', 'bim-b', 'bim', 'jsma', 'cw', 'all'], \
@@ -180,7 +114,7 @@ def main(args):
     elif args.dataset == 'cifar':
         noise_transform = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(mean = (0.4914, 4822, 4465), std = (0.247, 0.243, 0.261) ),
+            #transforms.Normalize(mean = (0.4914, 4822, 4465), std = (0.247, 0.243, 0.261) ),
             #AddGaussianNoise(0., 0.1)
         ])
     train_noisy = get_data(args.dataset, train=True)#, transform=noise_transform)
@@ -231,75 +165,84 @@ def main(args):
     pred_train = torch.cat(pred_train_list).detach().cpu()
 
     inds_correct = torch.where(Y_train == pred_train.argmax(axis=1), torch.full_like(Y_train, 1), torch.full_like(Y_train, 0)).to(device)
-
-    
-    picked_train_data = {}
-    for datatype in datatypes:
-        picked_train_data[datatype] = []
+    picked_train_data       = []
+    picked_train_data_noisy = []
+    picked_train_data_adv   = []
     for i, (b, y_tmp) in enumerate(zip(inds_correct, Y_train)):
         if b == 1:
-            picked_train_data['normal'].append( (train_data[i][0], y_tmp) )
-            picked_train_data['noisy'].append( (train_noisy[i][0], y_tmp) )
-            picked_train_data['adversarial'].append( (X_train_adv[i], y_tmp) )
+            picked_train_data.append( (train_data[i][0], y_tmp) )
+            picked_train_data_noisy.append( (train_noisy[i][0], y_tmp) )
+            picked_train_data_adv.append( (X_train_adv[i], y_tmp) )
         else:
             continue
+    picked_train_loader = DataLoader(
+        dataset = picked_train_data,
+        batch_size = args.batch_size
+    )
+    picked_train_noisy_loader = DataLoader(
+        dataset = picked_train_data_noisy,
+        batch_size = args.batch_size
+    )
+    picked_train_adv_loader = DataLoader(
+        dataset = picked_train_data_adv,
+        batch_size = args.batch_size
+    )
+    
 
-    picked_train_loader = {}
-    for datatype in datatypes:
-        picked_train_loader[datatype] = DataLoader(
-            dataset = picked_train_data[datatype],
-            batch_size = args.batch_size
-        )
 
-
-    ###########################################################################################################################################
-    ################# Get Bayesian uncertainty scores
-    nb_size = 2
+    #######################################
+    ## Get Bayesian uncertainty scores
+    nb_size = 5
     print('Getting Monte Carlo dropout variance predictions...')
-    uncerts = {}
-    test_uncerts = {}
-    for datatype in datatypes:
-        uncerts[datatype] = get_mc_predictions(model, picked_train_loader[datatype], nb_iter=nb_size)#, method='entropy')
-
-    ################# Get KDE scores
+    uncerts_normal  = get_mc_predictions(model, picked_train_loader,         nb_iter=nb_size)#, method='entropy')
+    uncerts_noisy   = get_mc_predictions(model, picked_train_noisy_loader,   nb_iter=nb_size)#, method='entropy')
+    uncerts_adv     = get_mc_predictions(model, picked_train_adv_loader,     nb_iter=nb_size)#, method='entropy')
+    print(uncerts_normal.shape)
+    print(uncerts_noisy.shape)
+    print(uncerts_adv.shape)
+    
+    ## Get KDE scores
     # Get deep feature representations
     print('Getting deep feature representations...')
     x_train_features         = get_deep_representations(model, train_loader              , args.dataset)
-    picked_train_features = {}
-    for datatype in datatypes:
-        picked_train_features[datatype] = get_deep_representations(model, picked_train_loader[datatype], args.dataset)
-    
+    x_train_normal_features  = get_deep_representations(model, picked_train_loader        , args.dataset)
+    x_train_noisy_features   = get_deep_representations(model, picked_train_noisy_loader  , args.dataset)
+    x_train_adv_features     = get_deep_representations(model, picked_train_adv_loader    , args.dataset)
     print('Shape')
     print(x_train_features.shape)
-    for datatype in datatypes:
-        print(picked_train_features[datatype].shape)
-    ####### CLASS NUM ########
+    print(x_train_normal_features.shape)
+    print(x_train_noisy_features.shape)
+    print(x_train_adv_features.shape)
+
     class_num = 10
     Y_train_label   = [ tmp[1] for tmp in train_data ]
     Y_train_label   = np.array(Y_train_label)
     Y_train         = np.zeros((len(Y_train_label), class_num))
     Y_train[ np.arange(Y_train_label.size), Y_train_label ] = 1
+
     # Train one KDE per class
     print('Training KDEs...')
     class_inds = {}
     for i in range(class_num):
+        #class_inds[i] = np.where(Y_train.argmax(axis=1) == i)[0]
         class_inds[i] = np.where(Y_train_label == i)[0]
         print('class_inds[', i, ']: ', class_inds[i].size )
+
     kdes = {}
-    warnings.warn("Using pre-set kernel bandwidths that were determined optimal for the specific CNN models of the paper. If you've "
+    warnings.warn("Using pre-set kernel bandwidths that were determined "
+                  "optimal for the specific CNN models of the paper. If you've "
                   "changed your model, you'll need to re-optimize the bandwidth.")
-    
-    ### Use train features to fit Kernel density
     for i in range(class_num):
         kdes[i] = KernelDensity(kernel='gaussian', bandwidth=BANDWIDTHS[args.dataset]).fit( x_train_features.cpu().numpy()[class_inds[i]] )
+    #print(kdes)
 
     # Get model predictions
     print('Computing model predictions...')
-    data_loaders = []
-    for datatype in datatypes:
-        data_loaders.append(picked_train_loader[datatype])
+    data_loaders = [ picked_train_loader,
+        picked_train_noisy_loader,
+        picked_train_adv_loader
+    ]
     preds = []
-    preds_train = {}
     for now_loader in data_loaders:
         with torch.no_grad():
             tmp_result = []
@@ -308,38 +251,56 @@ def main(args):
                 pred = model(x)
                 tmp_result.append(pred.detach().cpu())
             preds.append( torch.cat(tmp_result) )
-    preds_train['normal']       = torch.argmax(preds[0], dim=1)
-    preds_train['noisy']        = torch.argmax(preds[1], dim=1)
-    preds_train['adversarial']  = torch.argmax(preds[2], dim=1)
+    preds_train_normal  = torch.argmax(preds[0], dim=1)
+    preds_train_noisy   = torch.argmax(preds[1], dim=1)
+    preds_train_adv     = torch.argmax(preds[2], dim=1)
+    #print(preds_train_normal)
 
     # Get density estimates
     ###### get test density
     print('computing densities...')
-    train_densities = {}
-    for datatype in datatypes:
-        train_densities[datatype] = score_samples(
-            kdes,
-            picked_train_features[datatype].cpu(),
-            preds_train[datatype].cpu()
-        )
-    ###### Z-score the uncertainty and density values
-    ###### normalize
-    uncerts_z = {}
-    uncerts_z['normal'], uncerts_z['noisy'], uncerts_z['adversarial'] = normalize(
-        uncerts['normal'].cpu().numpy(),
-        uncerts['noisy'].cpu().numpy(),
-        uncerts['adversarial'].cpu().numpy(),
+    densities_normal = score_samples(
+        kdes,                           
+        x_train_normal_features.cpu(),
+        preds_train_normal.cpu()
     )
-    densities_z = {}
-    densities_z['normal'], densities_z['noisy'], densities_z['adversarial'] = normalize(
-        train_densities['normal'],
-        train_densities['noisy'],
-        train_densities['adversarial'],
+    densities_noisy = score_samples(
+        kdes,
+        x_train_noisy_features.cpu(),
+        preds_train_noisy.cpu()
     )
-    print('.......Densities............')
-    for datatype in datatypes:
-        print(datatype, ' Mean: ', densities_z[datatype].mean() )
-    
+    densities_adv = score_samples(
+        kdes,
+        x_train_adv_features.cpu(),
+        preds_train_adv.cpu()
+    )
+
+    ## Z-score the uncertainty and density values
+    uncerts_normal_z, uncerts_adv_z, uncerts_noisy_z = normalize(
+        uncerts_normal.cpu().numpy(),
+        uncerts_adv.cpu().numpy(),
+        uncerts_noisy.cpu().numpy()
+    )
+    densities_normal_z, densities_adv_z, densities_noisy_z = normalize(
+        densities_normal,
+        densities_adv,
+        densities_noisy
+    )
+    print('.......mean,,,,,,,,,,')
+    print(densities_normal_z.mean())
+    print(densities_adv_z.mean())
+    print(densities_noisy_z.mean())
+
+    ## Build detector
+    ### combine
+    values_combine, labels_combine, lr_combine = train_lr(
+        densities_pos = densities_adv_z,
+        densities_neg = np.concatenate((densities_normal_z, densities_noisy_z)),
+        uncerts_pos = uncerts_adv_z,
+        uncerts_neg = np.concatenate((uncerts_normal_z, uncerts_noisy_z)),
+        flag = 'combine'
+    )
+
     ## Build detector
     ### dense, uncert, combine
     flags = ['dense', 'uncert', 'combine']
@@ -348,10 +309,10 @@ def main(args):
     lrs     = {}
     for flag in flags:
         tmp_values, tmp_labels, tmp_lr = train_lr(
-            densities_pos = densities_z['adversarial'],
-            densities_neg = np.concatenate((densities_z['normal'], densities_z['noisy'])),
-            uncerts_pos = uncerts_z['adversarial'],
-            uncerts_neg = np.concatenate((uncerts_z['normal'], uncerts_z['noisy'])),
+            densities_pos = densities_adv_z,
+            densities_neg = np.concatenate((densities_normal_z, densities_noisy_z)),
+            uncerts_pos = uncerts_adv_z,
+            uncerts_neg = np.concatenate((uncerts_normal_z, uncerts_noisy_z)),
             flag = flag
         )
         values[flag] = tmp_values
@@ -359,23 +320,18 @@ def main(args):
         lrs[flag] = tmp_lr
 
 
-
-    test_values, test_labels, test_num = evaluate_test(args, kdes, datatypes)
-
     ## Evaluate detector
+    # Compute logistic regression model predictions
     ### evaluate on train dataset
     probs = {}
     for flag in flags:
-        if args.do_test:
-            probs[flag] = lrs[flag].predict_proba( test_values[flag] )[:, 1]
-        else:
-            probs[flag] = lrs[flag].predict_proba( values[flag] )[:, 1]
+        probs[flag] = lrs[flag].predict_proba( values[flag] )[:, 1]
+    #probs_combine   = lrs['combine'].predict_proba(values['combine'])[:, 1]
+    #probs_dense     = lr_dense.predict_proba(values['dense'])[:, 1]
+    #probs_uncert    = lr_uncert.predict_proba(values['uncert'])[:, 1]
+    
     # Compute AUC
-    if args.do_test:
-        n_samples = test_num
-    else:
-        n_samples = len(test_data)
-   
+    n_samples = len(picked_train_data)
     # The first 2/3 of 'probs' is the negative class (normal and noisy samples) and the last 1/3 is the positive class (adversarial samples).
     prob_datas = []
     for flag in flags:
@@ -411,12 +367,6 @@ if __name__ == "__main__":
         '-b', '--batch_size',
         help="The batch size to use for training.",
         required=False, type=int
-    )
-    parser.add_argument(
-        '-t', '--do_test',
-        help="do on test dataset",
-        action='store_true',
-        required=False,
     )
     parser.set_defaults(batch_size=256)
     args = parser.parse_args()
