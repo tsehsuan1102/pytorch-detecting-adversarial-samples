@@ -1,0 +1,181 @@
+Namespace(attack='fgsm', batch_size=512, dataset='mnist', do_test=True, model='../model/model_10.pth', pic_name='mnist_fgsm_20', uncert='default')
+Loading the data and model...
+Sequential(
+  (0): Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1))
+  (1): ReLU()
+  (2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1))
+  (3): ReLU()
+  (4): MaxPool2d(kernel_size=(2, 2), stride=(2, 2), padding=0, dilation=1, ceil_mode=False)
+  (5): Dropout(p=0.5, inplace=False)
+  (6): Flatten()
+  (7): Linear(in_features=9216, out_features=128, bias=True)
+  (8): ReLU()
+  (9): Dropout(p=0.5, inplace=False)
+  (10): Linear(in_features=128, out_features=10, bias=True)
+  (11): Softmax(dim=None)
+)
+Loading noisy and adversarial samples...
+Model accuracy on the normal test set: 95.24%
+Model accuracy on the noisy test set: 95.24%
+Average L-2 perturbation size of the noisy test set: 2.80
+Model accuracy on the adversarial test set: 27.83%
+Average L-2 perturbation size of the adversarial test set: 24.69
+Getting Monte Carlo dropout variance...
+Getting Monte Carlo dropout entropy...
+Getting entropy...
+Entropy tensor([[1.1808e-39, 0.0000e+00, 3.2754e-40,  ..., 0.0000e+00, 0.0000e+00,
+         0.0000e+00],
+        [1.0000e+00, 0.0000e+00, 0.0000e+00,  ..., 0.0000e+00, 0.0000e+00,
+         0.0000e+00],
+        [6.1047e-37, 2.9944e-41, 3.2043e-23,  ..., 2.6695e-23, 1.5887e-39,
+         9.4229e-13],
+        ...,
+        [0.0000e+00, 2.0655e-42, 0.0000e+00,  ..., 0.0000e+00, 4.4639e-36,
+         1.5903e-33],
+        [5.5577e-22, 2.4365e-36, 3.6631e-22,  ..., 3.5721e-39, 2.8530e-42,
+         2.6214e-35],
+        [2.2074e-23, 4.2126e-28, 1.5579e-33,  ..., 1.3532e-25, 1.0000e+00,
+         1.4346e-16]])
+Uncert tensor([       nan,        nan, 2.6092e-11,  ...,        nan, 8.0273e-20,
+               nan])
+Entropy tensor([[9.6445e-40, 0.0000e+00, 8.6088e-40,  ..., 0.0000e+00, 0.0000e+00,
+         0.0000e+00],
+        [1.0000e+00, 0.0000e+00, 0.0000e+00,  ..., 0.0000e+00, 0.0000e+00,
+         0.0000e+00],
+        [1.1233e-37, 3.8265e-41, 4.0767e-23,  ..., 4.9591e-24, 7.8042e-40,
+         3.3517e-13],
+        ...,
+        [0.0000e+00, 3.1235e-42, 0.0000e+00,  ..., 0.0000e+00, 1.6778e-36,
+         3.4164e-34],
+        [1.5125e-21, 7.9297e-36, 1.4374e-21,  ..., 3.2009e-39, 1.0375e-41,
+         6.5553e-35],
+        [2.3735e-23, 3.3010e-28, 1.2031e-33,  ..., 1.3903e-25, 1.0000e+00,
+         2.0433e-16]])
+Uncert tensor([       nan,        nan, 9.6276e-12,  ...,        nan, 1.7404e-19,
+               nan])
+Entropy tensor([[8.1603e-17, 5.5384e-25, 1.5044e-09,  ..., 8.7641e-24, 1.3993e-16,
+         8.4505e-26],
+        [1.0000e+00, 6.1611e-36, 9.4237e-21,  ..., 9.3825e-25, 2.1965e-31,
+         4.0107e-28],
+        [8.8731e-02, 3.6230e-11, 8.1004e-04,  ..., 1.7489e-06, 1.7683e-01,
+         7.3286e-01],
+        ...,
+        [1.9299e-17, 2.6170e-21, 5.5045e-12,  ..., 1.4265e-25, 1.0565e-14,
+         3.9699e-24],
+        [9.9842e-01, 6.9844e-16, 1.3948e-04,  ..., 3.2027e-12, 6.8894e-07,
+         9.5927e-11],
+        [1.2776e-01, 3.7410e-06, 2.3814e-04,  ..., 2.3444e-05, 1.7415e-01,
+         9.4431e-02]])
+Uncert tensor([1.5952e-04, 2.0191e-17, 7.6078e-01,  ..., 9.3465e-04, 1.3045e-02,
+        1.0972e+00])
+tensor([0.0000e+00, 0.0000e+00, 2.6092e-11,  ..., 0.0000e+00, 8.0273e-20,
+        0.0000e+00])
+tensor([0.0000e+00, 0.0000e+00, 9.6276e-12,  ..., 0.0000e+00, 1.7404e-19,
+        0.0000e+00])
+tensor([1.5952e-04, 2.0191e-17, 7.6078e-01,  ..., 9.3465e-04, 1.3045e-02,
+        1.0972e+00])
+Getting deep feature representations...
+Shape
+torch.Size([60000, 128])
+torch.Size([57144, 128])
+torch.Size([57144, 128])
+torch.Size([57144, 128])
+Training KDEs...
+class_inds[ 0 ]:  5923
+class_inds[ 1 ]:  6742
+class_inds[ 2 ]:  5958
+class_inds[ 3 ]:  6131
+class_inds[ 4 ]:  5842
+class_inds[ 5 ]:  5421
+class_inds[ 6 ]:  5918
+class_inds[ 7 ]:  6265
+class_inds[ 8 ]:  5851
+class_inds[ 9 ]:  5949
+Computing model predictions...
+computing densities...
+results size 57144
+results mean -149.6628177595883
+results size 57144
+results mean -162.696548690484
+results size 57144
+results mean -1317.945459530869
+[-0.31248158 -0.31248158 -0.31248158 ... -0.31248158 -0.31248158
+ -0.31248158]
+[-0.31248158 -0.31248158 -0.31248158 ... -0.31248158 -0.31248158
+ -0.31248158]
+[-0.31162843 -0.31248158  3.7564747  ... -0.30748272 -0.2427113
+  5.5558467 ]
+.......Densities............
+normal  Mean:  0.42925621205126346
+noisy  Mean:  0.41504796920224424
+adversarial  Mean:  -0.8443041812535079
+processing dense ...
+processing entropy ...
+processing mc_entropy ...
+processing mc_variance ...
+[Test] Loading noisy and adversarial samples...
+[Test] Getting Monte Carlo dropout variance...
+[Test] Getting Monte Carlo dropout entropy...
+[Test] Getting entropy...
+Entropy tensor([[0.0000e+00, 0.0000e+00, 4.2039e-45,  ..., 1.0000e+00, 0.0000e+00,
+         1.0887e-39],
+        [1.1097e-40, 0.0000e+00, 1.0000e+00,  ..., 0.0000e+00, 6.0256e-44,
+         0.0000e+00],
+        [3.4136e-42, 1.0000e+00, 3.2752e-23,  ..., 5.7769e-26, 2.5149e-27,
+         1.3425e-38],
+        ...,
+        [0.0000e+00, 0.0000e+00, 0.0000e+00,  ..., 4.3476e-39, 2.6847e-33,
+         6.5556e-23],
+        [1.0160e-39, 4.1368e-38, 0.0000e+00,  ..., 0.0000e+00, 1.8983e-25,
+         0.0000e+00],
+        [0.0000e+00, 0.0000e+00, 4.4987e-38,  ..., 0.0000e+00, 0.0000e+00,
+         0.0000e+00]])
+Uncert tensor([       nan,        nan, 1.7096e-21,  ...,        nan,        nan,
+               nan])
+Entropy tensor([[0.0000e+00, 0.0000e+00, 4.2039e-45,  ..., 1.0000e+00, 0.0000e+00,
+         1.0887e-39],
+        [1.1097e-40, 0.0000e+00, 1.0000e+00,  ..., 0.0000e+00, 6.0256e-44,
+         0.0000e+00],
+        [3.4136e-42, 1.0000e+00, 3.2752e-23,  ..., 5.7769e-26, 2.5149e-27,
+         1.3425e-38],
+        ...,
+        [0.0000e+00, 0.0000e+00, 0.0000e+00,  ..., 4.3476e-39, 2.6847e-33,
+         6.5556e-23],
+        [1.0160e-39, 4.1368e-38, 0.0000e+00,  ..., 0.0000e+00, 1.8983e-25,
+         0.0000e+00],
+        [0.0000e+00, 0.0000e+00, 4.4987e-38,  ..., 0.0000e+00, 0.0000e+00,
+         0.0000e+00]])
+Uncert tensor([       nan,        nan, 1.7096e-21,  ...,        nan,        nan,
+               nan])
+Entropy tensor([[6.5703e-25, 2.9408e-36, 1.2078e-21,  ..., 1.0000e+00, 3.4581e-28,
+         1.8186e-18],
+        [6.5672e-19, 5.3811e-25, 3.1444e-05,  ..., 8.6675e-33, 6.6602e-17,
+         6.3081e-39],
+        [1.3116e-12, 1.6698e-14, 9.9811e-01,  ..., 4.6677e-19, 2.9140e-14,
+         1.4658e-25],
+        ...,
+        [2.7165e-10, 5.0586e-11, 2.5808e-11,  ..., 1.1205e-05, 3.5631e-03,
+         9.7919e-01],
+        [1.2847e-07, 1.7166e-13, 1.0910e-04,  ..., 2.1496e-20, 9.8965e-01,
+         8.3009e-19],
+        [1.4140e-26, 6.1366e-30, 3.6973e-15,  ..., 2.6751e-42, 3.0232e-32,
+         2.2758e-33]])
+Uncert tensor([7.4938e-17, 3.5746e-04, 1.3738e-02,  ..., 1.1495e-01, 5.8248e-02,
+        1.2287e-13])
+[Test] Getting deep feature representations...
+[Test] Computing model predictions...
+[Test] computing densities...
+results size 10000
+results mean -1549.6510103208325
+results size 10000
+results mean -1549.6510103208325
+results size 10000
+results mean -1285.5248113585958
+.......Densities............
+normal  Mean:  -0.05271545227201317
+noisy  Mean:  -0.05271545227201317
+adversarial  Mean:  0.10543090454402679
+dense  auc_score:  0.49943816500000004
+entropy  auc_score:  0.893856835
+mc_entropy  auc_score:  0.8162160975000001
+mc_variance  auc_score:  0.7840421874999999

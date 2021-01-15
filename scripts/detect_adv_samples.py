@@ -7,11 +7,12 @@ import torchvision
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from sklearn.neighbors import KernelDensity
+from torch import isnan
 
 from detect.util import (get_data, get_model, get_noisy_samples, get_mc_predictions,
                          get_deep_representations, score_samples, normalize,
                          train_lr, compute_roc,
-                         get_value,
+                         get_value, get_entropy,
                          AddGaussianNoise, evaluate)
 
 # Optimal KDE bandwidths that were determined from CV tuning
@@ -31,7 +32,7 @@ def getXY(dataset):
     return np.array(X), np.array(Y)
 
 
-def evaluate_test(args, model, kdes, datatypes, nb_size):
+def evaluate_test(args, model, kdes, datatypes, nb_size, flags):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     test_dataset = {}
@@ -58,11 +59,29 @@ def evaluate_test(args, model, kdes, datatypes, nb_size):
             shuffle = False
         )
     ### TODO pick data(model predict correctly on normal)
-    ### get uncertainty
-    print('[Test] Getting Monte Carlo dropout variance predictions...')
-    uncerts = {}
+
+    ################# Get Bayesian uncertainty scores
+    #### mc_variance
+    print('[Test] Getting Monte Carlo dropout variance...')
+    mc_variance = {}
     for datatype in datatypes:
-        uncerts[datatype] = get_mc_predictions(model, test_loader[datatype], nb_iter=nb_size, method=args.uncert)
+        mc_variance[datatype] = get_mc_predictions(model, test_loader[datatype], nb_iter=nb_size, method='default')
+
+    #### mc_entropy
+    print('[Test] Getting Monte Carlo dropout entropy...')
+    mc_entropy = {}
+    for datatype in datatypes:
+        mc_entropy[datatype] = get_mc_predictions(model, test_loader[datatype], nb_iter=nb_size, method='entropy')
+        where_are_NaNs = isnan(mc_entropy[datatype])
+        mc_entropy[datatype][where_are_NaNs] = 0
+    
+    ### entropy
+    print('[Test] Getting entropy...')
+    entropy = {}
+    for datatype in datatypes:
+        entropy[datatype] = get_entropy(model, test_loader[datatype])
+        where_are_NaNs = isnan(entropy[datatype])
+        entropy[datatype][where_are_NaNs] = 0
 
     ################# Get KDE scores
     # Get deep feature representations
@@ -95,11 +114,23 @@ def evaluate_test(args, model, kdes, datatypes, nb_size):
         )
     ###### Z-score the uncertainty and density values
     ###### normalize
-    uncerts_z = {}
-    uncerts_z['normal'], uncerts_z['noisy'], uncerts_z['adversarial'] = normalize(
-        uncerts['normal'].cpu().numpy(),
-        uncerts['noisy'].cpu().numpy(),
-        uncerts['adversarial'].cpu().numpy(),
+    mc_entropy_z = {}
+    mc_entropy_z['normal'], mc_entropy_z['noisy'], mc_entropy_z['adversarial'] = normalize(
+        mc_entropy['normal'].cpu().numpy(),
+        mc_entropy['noisy'].cpu().numpy(),
+        mc_entropy['adversarial'].cpu().numpy(),
+    )
+    mc_variance_z = {}
+    mc_variance_z['normal'], mc_variance_z['noisy'], mc_variance_z['adversarial'] = normalize(
+        mc_variance['normal'].cpu().numpy(),
+        mc_variance['noisy'].cpu().numpy(),
+        mc_variance['adversarial'].cpu().numpy(),
+    )
+    entropy_z = {}
+    entropy_z['normal'], entropy_z['noisy'], entropy_z['adversarial'] = normalize(
+        entropy['normal'].cpu().numpy(),
+        entropy['noisy'].cpu().numpy(),
+        entropy['adversarial'].cpu().numpy(),
     )
     densities_z = {}
     densities_z['normal'], densities_z['noisy'], densities_z['adversarial'] = normalize(
@@ -112,27 +143,26 @@ def evaluate_test(args, model, kdes, datatypes, nb_size):
         print(datatype, ' Mean: ', densities_z[datatype].mean() )
 
     ### dense, uncert, combine
-    flags = ['dense', 'uncert', 'combine']
     values  = {}
     labels  = {}
-    for flag in flags:
+    for now_flag in flags:
         tmp_values, tmp_labels = get_value(
-            densities_pos   = densities_z['adversarial'],
-            densities_neg   = np.concatenate((densities_z['normal'], densities_z['noisy'])),
-            uncerts_pos     = uncerts_z['adversarial'],
-            uncerts_neg     = np.concatenate((uncerts_z['normal'], uncerts_z['noisy'])),
-            #entro_pos       = entro_z['adversarial'],
-            #entro_neg       = np.concatenate((entro_z['normal'], entro_z['noisy'])),
-            flag = flag
+            densities   = (densities_z['adversarial'], np.concatenate((densities_z['normal'], densities_z['noisy']))),
+            entropy     = (entropy_z['adversarial'], np.concatenate((entropy_z['normal'], entropy_z['noisy']))),
+            mc_entropy  = (mc_entropy_z['adversarial'], np.concatenate((mc_entropy_z['normal'], mc_entropy_z['noisy']))),
+            mc_variance  = (mc_variance_z['adversarial'], np.concatenate((mc_variance_z['normal'], mc_variance_z['noisy']))),
+            flag = now_flag
         )
-        values[flag] = tmp_values
-        labels[flag] = tmp_labels
+        values[now_flag] = tmp_values
+        labels[now_flag] = tmp_labels
 
     return values, labels, num
 
 
 
 def main(args):
+    print(args)
+
     datatypes   = ['normal', 'noisy', 'adversarial']
     ## assertions
     assert args.dataset in ['mnist', 'cifar', 'svhn'], "Dataset parameter must be either 'mnist', 'cifar' or 'svhn'"
@@ -145,7 +175,6 @@ def main(args):
 
     print('Loading the data and model...')
     
-    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Load the model
@@ -156,7 +185,6 @@ def main(args):
     model.eval()
     # Load the dataset
     train_data  = get_data(args.dataset, train=True)
-    print(train_data[0])
     train_loader = DataLoader(
         dataset = train_data,
         batch_size = args.batch_size,
@@ -175,19 +203,18 @@ def main(args):
     if args.dataset == 'mnist':
         noise_transform = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(mean = (0.1307, ), std = (0.3081, )),
+            transforms.Normalize(mean = (0.1307), std = (0.3081)),
             AddGaussianNoise(0., 0.1)
         ])
     elif args.dataset == 'cifar':
         noise_transform = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(mean = (0.4914, 4822, 4465), std = (0.247, 0.243, 0.261) ),
-            #AddGaussianNoise(0., 0.1)
+            transforms.Normalize(mean = (0.4914, 0.4822, 0.4465), std = (0.247, 0.243, 0.261) ),
+            AddGaussianNoise(0., 0.1)
         ])
-    train_noisy = get_data(args.dataset, train=True)#, transform=noise_transform)
-    print('NOISY', train_noisy)
-    print(train_noisy[0])
-
+    train_noisy = get_data(args.dataset, train=True, transform=noise_transform)
+    #print('NOISY', train_noisy)
+    #print(train_noisy[0])
     
     X_train, Y_train = getXY(train_data)
     # Check model accuracies on each sample type
@@ -199,18 +226,12 @@ def main(args):
         )
         acc = evaluate(model, data_loader)
         print("Model accuracy on the %s test set: %0.2f%%" % (s_type, 100 * acc) )
+        
         # Compute and display average perturbation sizes
         ### TODO
         X_now, Y_now = getXY(dataset)
 
         if not s_type == 'normal':
-            #print( X_now.reshape((len(X_train), -1)) - X_train.reshape((len(X_train), -1)) )
-            #print( X_now.reshape((len(X_train), -1)).max() )
-            #print( X_now.reshape((len(X_train), -1)).mean() )
-            #print( X_now.reshape((len(X_train), -1)).min() )
-            #print( X_train.reshape((len(X_train), -1)).max() )
-            #print( X_train.reshape((len(X_train), -1)).mean() )
-            #print( X_train.reshape((len(X_train), -1)).min() )
             l2_diff = np.linalg.norm(
                 X_now.reshape((len(X_train), -1)) - X_train.reshape((len(X_train), -1)),
                 axis=1
@@ -232,7 +253,6 @@ def main(args):
     pred_train = torch.cat(pred_train_list).detach().cpu()
 
     inds_correct = torch.where(Y_train == pred_train.argmax(axis=1), torch.full_like(Y_train, 1), torch.full_like(Y_train, 0)).to(device)
-
     
     picked_train_data = {}
     for datatype in datatypes:
@@ -252,15 +272,36 @@ def main(args):
             batch_size = args.batch_size
         )
 
-
     ###########################################################################################################################################
     ################# Get Bayesian uncertainty scores
-    nb_size = 50
-    print('Getting Monte Carlo dropout variance predictions...')
-    uncerts = {}
-    test_uncerts = {}
+    nb_size = 20
+    #### mc_variance
+    print('Getting Monte Carlo dropout variance...')
+    mc_variance = {}
     for datatype in datatypes:
-        uncerts[datatype] = get_mc_predictions(model, picked_train_loader[datatype], nb_iter=nb_size, method=args.uncert)
+        mc_variance[datatype] = get_mc_predictions(model, picked_train_loader[datatype], nb_iter=nb_size, method='default')
+
+    #### mc_entropy
+    print('Getting Monte Carlo dropout entropy...')
+    mc_entropy = {}
+    for datatype in datatypes:
+        mc_entropy[datatype] = get_mc_predictions(model, picked_train_loader[datatype], nb_iter=nb_size, method='entropy')
+        where_are_NaNs = isnan(mc_entropy[datatype])
+        mc_entropy[datatype][where_are_NaNs] = 0
+    
+    ### entropy
+    print('Getting entropy...')
+    entropy = {}
+    for datatype in datatypes:
+        entropy[datatype] = get_entropy(model, picked_train_loader[datatype])
+        where_are_NaNs = isnan(entropy[datatype])
+        entropy[datatype][where_are_NaNs] = 0
+
+    print(entropy['normal'])
+    print(entropy['noisy'])
+    print(entropy['adversarial'])
+
+
 
     ################# Get KDE scores
     # Get deep feature representations
@@ -280,6 +321,7 @@ def main(args):
     Y_train_label   = np.array(Y_train_label)
     Y_train         = np.zeros((len(Y_train_label), class_num))
     Y_train[ np.arange(Y_train_label.size), Y_train_label ] = 1
+    
     # Train one KDE per class
     print('Training KDEs...')
     class_inds = {}
@@ -325,11 +367,23 @@ def main(args):
         )
     ###### Z-score the uncertainty and density values
     ###### normalize
-    uncerts_z = {}
-    uncerts_z['normal'], uncerts_z['noisy'], uncerts_z['adversarial'] = normalize(
-        uncerts['normal'].cpu().numpy(),
-        uncerts['noisy'].cpu().numpy(),
-        uncerts['adversarial'].cpu().numpy(),
+    mc_entropy_z = {}
+    mc_entropy_z['normal'], mc_entropy_z['noisy'], mc_entropy_z['adversarial'] = normalize(
+        mc_entropy['normal'].cpu().numpy(),
+        mc_entropy['noisy'].cpu().numpy(),
+        mc_entropy['adversarial'].cpu().numpy(),
+    )
+    mc_variance_z = {}
+    mc_variance_z['normal'], mc_variance_z['noisy'], mc_variance_z['adversarial'] = normalize(
+        mc_variance['normal'].cpu().numpy(),
+        mc_variance['noisy'].cpu().numpy(),
+        mc_variance['adversarial'].cpu().numpy(),
+    )
+    entropy_z = {}
+    entropy_z['normal'], entropy_z['noisy'], entropy_z['adversarial'] = normalize(
+        entropy['normal'].cpu().numpy(),
+        entropy['noisy'].cpu().numpy(),
+        entropy['adversarial'].cpu().numpy(),
     )
     densities_z = {}
     densities_z['normal'], densities_z['noisy'], densities_z['adversarial'] = normalize(
@@ -337,28 +391,40 @@ def main(args):
         train_densities['noisy'],
         train_densities['adversarial'],
     )
+    print(entropy_z['normal'])
+    print(entropy_z['noisy'])
+    print(entropy_z['adversarial'])
+
     print('.......Densities............')
     for datatype in datatypes:
         print(datatype, ' Mean: ', densities_z[datatype].mean() )
     
     ## Build detector
     ### dense, uncert, combine
-    flags = ['dense', 'uncert', 'combine']
+    flags = ['dense', 'entropy', 'mc_entropy', 'mc_variance']#, 'combine']
     values  = {}
     labels  = {}
     lrs     = {}
-    for flag in flags:
+    for now_flag in flags:
+        print('processing %s ...' % now_flag)
         tmp_values, tmp_labels, tmp_lr = train_lr(
-            densities_pos = densities_z['adversarial'],
-            densities_neg = np.concatenate((densities_z['normal'], densities_z['noisy'])),
-            uncerts_pos = uncerts_z['adversarial'],
-            uncerts_neg = np.concatenate((uncerts_z['normal'], uncerts_z['noisy'])),
-            flag = flag
+            densities   = (densities_z['adversarial'], np.concatenate((densities_z['normal'], densities_z['noisy']))),
+            entropy     = (entropy_z['adversarial'], np.concatenate((entropy_z['normal'], entropy_z['noisy']))),
+            mc_entropy  = (mc_entropy_z['adversarial'], np.concatenate((mc_entropy_z['normal'], mc_entropy_z['noisy']))),
+            mc_variance  = (mc_variance_z['adversarial'], np.concatenate((mc_variance_z['normal'], mc_variance_z['noisy']))),
+            flag = now_flag
         )
-        values[flag] = tmp_values
-        labels[flag] = tmp_labels
-        lrs[flag] = tmp_lr
-    test_values, test_labels, test_num = evaluate_test(args, model, kdes, datatypes, nb_size)
+        #densities_pos = densities_z['adversarial'],
+        #densities_neg = np.concatenate((densities_z['normal'], densities_z['noisy'])),
+        #uncerts_pos = uncerts_z['adversarial'],
+        #uncerts_neg = np.concatenate((uncerts_z['normal'], uncerts_z['noisy'])),
+        #flag = flag
+        values[now_flag] = tmp_values
+        labels[now_flag] = tmp_labels
+        lrs[now_flag] = tmp_lr
+
+
+    test_values, test_labels, test_num = evaluate_test(args, model, kdes, datatypes, nb_size, flags)
 
     ## Evaluate detector
     ### evaluate on train dataset
@@ -382,7 +448,7 @@ def main(args):
     _, _, auc_score = compute_roc(
         prob_datas,
         plot=True,
-        name=args.pic_name
+        pic_name=args.pic_name
     )
 
 
@@ -409,6 +475,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '-b', '--batch_size',
         help="The batch size to use for training.",
+        default=256,
         required=False, type=int
     )
     parser.add_argument(
@@ -428,7 +495,7 @@ if __name__ == "__main__":
         default='result',
         required=False, type=str
     )
-    parser.set_defaults(batch_size=256)
+
     args = parser.parse_args()
     main(args)
     

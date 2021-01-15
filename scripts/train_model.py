@@ -30,6 +30,12 @@ def train(args, model, device, train_loader, test_loader=None):
             target = torch.tensor(y)
 
             loss = loss_criterien(pred, target)
+
+            if args.dataset == "cifar":
+                for m in model.modules():
+                    if m.__class__.__name__.startswith("Linear"):
+                        loss += 0.01 * torch.norm(m.weight, p = 2)
+
             loss.backward()
 
             running_loss += loss.item()

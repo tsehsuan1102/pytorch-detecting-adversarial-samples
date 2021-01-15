@@ -14,7 +14,7 @@ from detect.attacks import (fast_gradient_sign_method,
 
 # FGSM & BIM attack parameters that were chosen
 ATTACK_PARAMS = {
-    'mnist': {'eps': 0.300, 'eps_iter': 0.010},
+    'mnist': {'eps': 1, 'eps_iter': 0.010},
     'cifar': {'eps': 0.050, 'eps_iter': 0.005},
     'svhn': {'eps': 0.130, 'eps_iter': 0.010}
 }
@@ -27,6 +27,7 @@ def craft_one_type(args, model, X, Y, attack, test_loader=None):
     if attack == 'fgsm': # FGSM attack
         print('Crafting fgsm adversarial samples...')
         eps     = ATTACK_PARAMS[args.dataset]['eps']
+        #eps = 0.03
         X_adv   = fast_gradient_sign_method(model, X, Y, eps, test_loader)
 
     elif attack in ['bim-a', 'bim-b', 'bim']: # BIM attack
@@ -42,7 +43,7 @@ def craft_one_type(args, model, X, Y, attack, test_loader=None):
     #        model, X, Y, theta=1, gamma=0.1, clip_min=0., clip_max=1.
     #    )
     #else:
-    #    # TODO: CW attack
+    #    #TODO: CW attack
     #    raise NotImplementedError('幹您娘CW attack not yet implemented.')
 
     print(X_adv.shape)
@@ -53,7 +54,7 @@ def craft_one_type(args, model, X, Y, attack, test_loader=None):
     )
     acc = evaluate(model, adv_loader)
     print("Model accuracy on the adversarial test set: %0.2f%%" % (100 * acc))
-    np.save('../data/Adv_%s_%s.npy' % (args.dataset, args.attack), X_adv)
+    np.save('../data/Adv_%s_%s_train.npy' % (args.dataset, args.attack), X_adv)
 
 
 
@@ -76,7 +77,7 @@ def main(args):
     model.to(device)
 
     #train_dataset = get_data(args.dataset, train=True)
-    test_dataset = get_data(args.dataset, train=False)
+    test_dataset = get_data(args.dataset, train=True)
     
     ## evaluate on normal testset
     test_loader = DataLoader(
