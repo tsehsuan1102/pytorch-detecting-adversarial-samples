@@ -13,6 +13,9 @@ def train(args, model, device, train_loader, test_loader=None):
     running_loss = 0
     model.train()
     
+    # optimizer = Adadelta
+    optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
+    loss_criterien = torch.nn.CrossEntropyLoss()
     for i_epoch in range(args.epochs):
         model.to(device)
 
@@ -74,9 +77,6 @@ def main(args):
     
     #get model
     model = get_model(args.dataset)
-    # optimizer = Adadelta
-    optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
-    loss_criterien = torch.nn.CrossEntropyLoss()
     
     ## training
     train(args, model, device, train_loader, test_loader)

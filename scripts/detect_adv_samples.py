@@ -297,9 +297,9 @@ def main(args):
         where_are_NaNs = isnan(entropy[datatype])
         entropy[datatype][where_are_NaNs] = 0
 
-    print(entropy['normal'])
-    print(entropy['noisy'])
-    print(entropy['adversarial'])
+    #print(entropy['normal'])
+    #print(entropy['noisy'])
+    #print(entropy['adversarial'])
 
 
 
@@ -391,9 +391,9 @@ def main(args):
         train_densities['noisy'],
         train_densities['adversarial'],
     )
-    print(entropy_z['normal'])
-    print(entropy_z['noisy'])
-    print(entropy_z['adversarial'])
+    #print(entropy_z['normal'])
+    #print(entropy_z['noisy'])
+    #print(entropy_z['adversarial'])
 
     print('.......Densities............')
     for datatype in datatypes:
@@ -401,7 +401,7 @@ def main(args):
     
     ## Build detector
     ### dense, uncert, combine
-    flags = ['dense', 'entropy', 'mc_entropy', 'mc_variance']#, 'combine']
+    flags = ['dense', 'entropy', 'mc_entropy', 'mc_variance', 'combine']
     values  = {}
     labels  = {}
     lrs     = {}
@@ -423,8 +423,8 @@ def main(args):
         labels[now_flag] = tmp_labels
         lrs[now_flag] = tmp_lr
 
-
-    test_values, test_labels, test_num = evaluate_test(args, model, kdes, datatypes, nb_size, flags)
+    if args.do_test:
+        test_values, test_labels, test_num = evaluate_test(args, model, kdes, datatypes, nb_size, flags)
 
     ## Evaluate detector
     ### evaluate on train dataset
@@ -438,7 +438,7 @@ def main(args):
     if args.do_test:
         n_samples = test_num
     else:
-        n_samples = len(test_data)
+        n_samples = len(train_data)
    
     # The first 2/3 of 'probs' is the negative class (normal and noisy samples) and the last 1/3 is the positive class (adversarial samples).
     prob_datas = []
